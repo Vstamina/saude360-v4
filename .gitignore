@@ -1,0 +1,21 @@
+﻿# Dados sensíveis do app
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Backups
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Sistema
+.DS_Store
+Thumbs.db
