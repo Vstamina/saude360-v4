@@ -1,196 +1,165 @@
-import pandas as pd
 import streamlit as st
 
 from components.cards import open_panel, close_panel, status_pill, mini_row
-from components.gauges import render_card_exame
 from core.helpers import br_date, fmt_num
-from services.evolucao_service import (
+from services.evolucao_premium_service import (
     listar_medicamentos_para_evolucao,
-    obter_medicamento,
-    buscar_exames_antes_depois,
-    buscar_corpo_antes_depois,
-    buscar_eventos_no_periodo,
-    buscar_sintomas_no_periodo,
-    buscar_marcos_no_periodo,
-    buscar_documentos_relacionados,
-    buscar_atividades_no_periodo,
-    gerar_leitura_evolucao,
+    gerar_leitura_tratamento,
+    gerar_perguntas_tratamento,
+    gerar_txt_tratamento,
 )
 
 
-def _formatar_tabela_valores(df):
-    if df is None or df.empty:
-        return df
+def _cor_aderencia(valor):
+    try:
+        valor = float(valor)
+    except Exception:
+        valor = 0
 
-    view = df.copy()
-    for col in ["antes", "depois"]:
-        if col in view.columns:
-            view[col] = view[col].apply(lambda x: fmt_num(x, 2) if pd.notna(x) and x != "" else "")
-    return view
+    if valor >= 85:
+        return "aqua"
+    if valor >= 60:
+        return "warn"
+    return "danger"
 
 
 def render_evolucao_tratamento(usuario_id):
-    open_panel("Evolucao por tratamento", "Veja o que mudou no corpo, nos exames, nos sintomas, nos marcos e nos eventos depois de iniciar um medicamento.")
+    open_panel("Evolução por tratamento", "Compare exames, sintomas, eventos e aderência em torno de um medicamento.")
+
+    st.info(
+        "Esta análise é temporal e organizacional. Ela mostra o que aconteceu antes e depois do início do tratamento, mas não prova causa e efeito."
+    )
 
     meds = listar_medicamentos_para_evolucao(usuario_id)
 
     if meds.empty:
-        st.info("Cadastre um medicamento para acompanhar evolucao por tratamento.")
+        st.warning("Nenhum medicamento cadastrado.")
         close_panel()
         return
 
     opcoes = {
-        f"{r['nome']} | {r['dose'] or ''} | inicio {br_date(r['data_inicio'])} | {r['status']} | ID {r['id']}": int(r["id"])
-        for _, r in meds.iterrows()
+        f"{m['nome']} | {m.get('dose') or ''} | início {br_date(m.get('data_inicio'))} | ID {m['id']}": int(m["id"])
+        for _, m in meds.iterrows()
     }
 
-    med_label = st.selectbox("Escolha o tratamento", list(opcoes.keys()))
-    med_id = opcoes[med_label]
-
-    med_df = obter_medicamento(usuario_id, med_id)
-    if med_df.empty:
-        st.warning("Medicamento nao encontrado.")
-        close_panel()
-        return
-
-    med = med_df.iloc[0].to_dict()
-
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns([2.2, 1, 1])
     with c1:
-        status_pill(med.get("status", "Ativo"), "aqua" if med.get("status") == "Ativo" else "warn")
-        st.write("**Status**")
+        med_label = st.selectbox("Tratamento", list(opcoes.keys()))
+        med_id = opcoes[med_label]
     with c2:
-        st.write("**Inicio**")
-        st.caption(br_date(med.get("data_inicio")))
+        dias_antes = st.selectbox("Janela antes", [15, 30, 60, 90], index=1, format_func=lambda x: f"{x} dias")
     with c3:
-        st.write("**Fim/status**")
-        st.caption(br_date(med.get("data_fim") or med.get("data_status")))
-    with c4:
-        st.write("**Profissional**")
-        st.caption(med.get("medico") or "")
+        dias_depois = st.selectbox("Janela depois", [30, 60, 90, 180, 365], index=2, format_func=lambda x: f"{x} dias")
 
-    if med.get("motivo_status"):
-        st.warning(f"Motivo/status: {med.get('motivo_status')}")
+    resultado = gerar_leitura_tratamento(usuario_id, med_id, dias_antes, dias_depois)
+    ader = resultado["aderencia"]
 
     st.divider()
 
-    exames_df = buscar_exames_antes_depois(usuario_id, med.get("data_inicio"))
-    corpo_df = buscar_corpo_antes_depois(usuario_id, med.get("data_inicio"))
-    eventos_df = buscar_eventos_no_periodo(usuario_id, med_id, med.get("data_inicio"), med.get("data_fim") or med.get("data_status"))
-    sintomas_df = buscar_sintomas_no_periodo(usuario_id, med_id, med.get("data_inicio"), med.get("data_fim") or med.get("data_status"))
-    marcos_df = buscar_marcos_no_periodo(usuario_id, med.get("data_inicio"), med.get("data_fim") or med.get("data_status"))
-    docs_df = buscar_documentos_relacionados(usuario_id, med.get("nome"))
-    atividades_df = buscar_atividades_no_periodo(usuario_id, med.get("data_inicio"), med.get("data_fim") or med.get("data_status"))
+    c1, c2, c3, c4, c5 = st.columns(5)
+    with c1:
+        status_pill(f"{ader.get('aderencia', 0)}% aderência", _cor_aderencia(ader.get("aderencia", 0)))
+    with c2:
+        status_pill(f"{len(resultado['exames'])} exames", "purple")
+    with c3:
+        status_pill(f"{len(resultado['sintomas'])} sintomas", "warn" if len(resultado["sintomas"]) else "aqua")
+    with c4:
+        status_pill(f"{len(resultado['eventos'])} eventos", "warn" if len(resultado["eventos"]) else "aqua")
+    with c5:
+        status_pill(f"{ader.get('nao_tomadas', 0)} não tomadas", "warn" if ader.get("nao_tomadas", 0) else "aqua")
 
-    st.subheader("Leitura inteligente")
-    leitura = gerar_leitura_evolucao(med, exames_df, corpo_df, eventos_df, atividades_df, sintomas_df, marcos_df)
-    st.info(leitura)
+    st.subheader("Leitura do tratamento")
+    st.text_area("Resumo", value=resultado["texto"], height=190)
 
-    close_panel()
+    st.subheader("Perguntas para levar à consulta")
+    perguntas = gerar_perguntas_tratamento(resultado)
+    for i, p in enumerate(perguntas, start=1):
+        st.write(f"**{i}.** {p}")
 
-    col_a, col_b = st.columns([1.15, 1])
+    tabs = st.tabs(["Exames antes/depois", "Sintomas", "Eventos", "Aderência", "Corpo", "Exportar"])
 
-    with col_a:
-        open_panel("Marcos no periodo", "Consultas, retornos e mudanças de conduta que ajudam a explicar a evolução")
-        if marcos_df.empty:
-            st.info("Nenhum marco registrado no periodo do tratamento.")
+    with tabs[0]:
+        st.subheader("Comparação de exames")
+        exames = resultado["exames"]
+
+        if exames.empty:
+            st.info("Não há exames suficientes na janela para comparar.")
         else:
-            for _, m in marcos_df.head(8).iterrows():
+            st.dataframe(exames, width="stretch", hide_index=True)
+
+            st.subheader("Leitura por exame")
+            for _, r in exames.iterrows():
                 mini_row(
-                    f"{br_date(m['data_marco'])} | {m['tipo_marco']}",
-                    f"{m['titulo']} | {m.get('conduta') or m.get('queixas') or ''}"
+                    f"{r['exame']} | {r['leitura']}",
+                    f"Antes: {fmt_num(r.get('antes_resultado'), 2)} {r.get('unidade') or ''} em {br_date(r.get('antes_data'))} | "
+                    f"Depois: {fmt_num(r.get('depois_resultado'), 2)} {r.get('unidade') or ''} em {br_date(r.get('depois_data'))} | "
+                    f"Variação: {fmt_num(r.get('variacao_abs'), 2)} ({fmt_num(r.get('variacao_pct'), 1)}%)",
                 )
-        close_panel()
 
-        open_panel("Corpo antes e depois", "Peso, gordura, massa magra e cintura")
-        if corpo_df.empty:
-            st.info("Nao ha bioimpedancia/medidas suficientes no periodo.")
-        else:
-            view = _formatar_tabela_valores(corpo_df)
-            st.dataframe(
-                view[["indicador", "data_antes", "antes", "data_depois", "depois", "unidade", "variacao"]],
-                width="stretch",
-                hide_index=True,
-            )
-        close_panel()
+    with tabs[1]:
+        st.subheader("Sintomas após início")
+        sintomas = resultado["sintomas"]
 
-    with col_b:
-        open_panel("Sintomas no periodo", "Relatos associados ao tratamento ou ao mesmo periodo")
-        if sintomas_df.empty:
-            st.success("Nenhum sintoma registrado no periodo.")
+        if sintomas.empty:
+            st.success("Nenhum sintoma registrado na janela após o início.")
         else:
-            fortes = len(sintomas_df[sintomas_df["intensidade"].fillna(0) >= 7])
-            status_pill(f"{len(sintomas_df)} sintoma(s)", "lilac")
-            status_pill(f"{fortes} forte(s)", "danger" if fortes else "aqua")
-            for _, s in sintomas_df.head(6).iterrows():
-                med_nome = f" | {s['medicamento']}" if s.get("medicamento") else ""
+            for _, r in sintomas.head(60).iterrows():
                 mini_row(
-                    f"{br_date(s['data_sintoma'])} {s['horario'] or ''} | {s['sintoma']} | {int(s['intensidade'] or 0)}/10",
-                    f"{s.get('gatilho') or ''}{med_nome} | {s.get('observacao') or ''}",
+                    f"{br_date(r.get('data_sintoma'))} {r.get('horario') or ''} | {r.get('sintoma') or ''} | {r.get('intensidade') or 0}/10",
+                    f"Medicamento associado: {r.get('medicamento') or 'não informado'} | {r.get('observacao') or ''}",
                 )
-        close_panel()
 
-    open_panel("Exames antes e depois", "Comparacao laboratorial associada ao periodo do tratamento")
-    if exames_df.empty:
-        st.info("Nao ha exames suficientes no periodo para comparar.")
-    else:
-        view = _formatar_tabela_valores(exames_df)
-        st.dataframe(
-            view[["indicador", "data_antes", "antes", "data_depois", "depois", "unidade", "variacao", "referencia_min", "referencia_max"]],
-            width="stretch",
-            hide_index=True,
+    with tabs[2]:
+        st.subheader("Eventos de medicação")
+        eventos = resultado["eventos"]
+
+        if eventos.empty:
+            st.success("Nenhum evento registrado na janela.")
+        else:
+            for _, r in eventos.head(60).iterrows():
+                mini_row(
+                    f"{br_date(r.get('data_evento'))} | {r.get('tipo_evento') or ''}",
+                    f"{r.get('motivo') or ''} | Sintomas: {r.get('sintomas') or ''} | Conduta: {r.get('conduta') or ''}",
+                )
+
+    with tabs[3]:
+        st.subheader("Aderência do tratamento")
+        st.write(ader.get("leitura", ""))
+
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            status_pill(f"{ader.get('total', 0)} doses", "purple")
+        with c2:
+            status_pill(f"{ader.get('tomadas', 0)} tomadas", "aqua")
+        with c3:
+            status_pill(f"{ader.get('nao_tomadas', 0)} não tomadas", "warn" if ader.get("nao_tomadas", 0) else "aqua")
+        with c4:
+            status_pill(f"{ader.get('pendentes', 0)} pendentes", "warn" if ader.get("pendentes", 0) else "aqua")
+
+        doses = resultado["doses"]
+        if not doses.empty:
+            with st.expander("Ver doses"):
+                st.dataframe(doses, width="stretch", hide_index=True)
+
+    with tabs[4]:
+        st.subheader("Corpo e bioimpedância")
+        bio = resultado["bio_comp"]
+
+        if bio.empty:
+            st.info("Sem bioimpedância suficiente na janela.")
+        else:
+            st.dataframe(bio, width="stretch", hide_index=True)
+
+    with tabs[5]:
+        txt = gerar_txt_tratamento(usuario_id, med_id, dias_antes, dias_depois)
+        st.download_button(
+            "Baixar evolução do tratamento em TXT",
+            data=txt.encode("utf-8"),
+            file_name="evolucao_tratamento_saude360.txt",
+            mime="text/plain",
         )
 
-        st.subheader("Resultados depois do inicio")
-        cols = st.columns(3)
-        medidores = exames_df[exames_df["depois"].notna()].reset_index(drop=True)
-        if medidores.empty:
-            st.caption("Ainda nao ha exames depois do inicio do tratamento.")
-        else:
-            for i, r in medidores.iterrows():
-                with cols[i % 3]:
-                    key = f"evolucao_card_gauge_{usuario_id}_{med_id}_{i}_{str(r['indicador']).lower().replace(' ', '_')}"
-                    render_card_exame(
-                        nome=r["indicador"],
-                        resultado=r["depois"],
-                        ref_min=r["referencia_min"],
-                        ref_max=r["referencia_max"],
-                        unidade=r["unidade"],
-                        key=key,
-                    )
+        with st.expander("Prévia"):
+            st.text_area("Texto", value=txt, height=520)
+
     close_panel()
-
-    col_c, col_d = st.columns(2)
-
-    with col_c:
-        open_panel("Eventos no periodo", "STOP, efeitos adversos, pausas e observacoes")
-        if eventos_df.empty:
-            st.success("Nenhum evento adverso/alteracao registrado no periodo.")
-        else:
-            for _, e in eventos_df.iterrows():
-                mini_row(
-                    f"{br_date(e['data_evento'])} | {e['tipo_evento']}",
-                    f"{e.get('motivo') or ''} {e.get('sintomas') or ''} {e.get('observacao') or ''}",
-                )
-        close_panel()
-
-    with col_d:
-        open_panel("Atividade e documentos", "Movimento e arquivos relacionados ao tratamento")
-        if atividades_df.empty:
-            st.caption("Nenhuma atividade registrada no periodo.")
-        else:
-            total_min = int(atividades_df["duracao_min"].fillna(0).sum()) if "duracao_min" in atividades_df.columns else 0
-            status_pill(f"{len(atividades_df)} atividade(s)", "aqua")
-            status_pill(f"{total_min} min", "turq")
-
-        st.divider()
-
-        if docs_df.empty:
-            st.info("Nenhum documento relacionado encontrado pelo nome do medicamento.")
-        else:
-            for _, d in docs_df.iterrows():
-                mini_row(
-                    f"{br_date(d['data_documento'])} | {d['tipo_documento']}",
-                    f"{d['titulo']} | {d.get('relacionado_a') or ''}",
-                )
-        close_panel()

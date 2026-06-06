@@ -229,7 +229,133 @@ def init_db():
         )
     """)
 
-    # Migracoes seguras
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS pendencias_cuidado (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER NOT NULL,
+            data_criacao TEXT NOT NULL,
+            tipo TEXT NOT NULL,
+            prioridade TEXT,
+            titulo TEXT NOT NULL,
+            descricao TEXT,
+            origem TEXT,
+            medicamento_id INTEGER,
+            dose_id INTEGER,
+            marco_id INTEGER,
+            status TEXT NOT NULL DEFAULT 'Aberta',
+            data_resolucao TEXT,
+            resolucao TEXT,
+            criado_em TEXT NOT NULL
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS importacoes_assistidas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER NOT NULL,
+            data_importacao TEXT NOT NULL,
+            tipo_documento TEXT,
+            titulo TEXT,
+            paciente_detectado TEXT,
+            validacao_paciente TEXT,
+            texto_extraido TEXT,
+            status TEXT NOT NULL DEFAULT 'Rascunho',
+            documento_id INTEGER,
+            criado_em TEXT NOT NULL
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS estoque_medicamentos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER NOT NULL,
+            medicamento_id INTEGER NOT NULL,
+            data_compra TEXT,
+            quantidade_total REAL,
+            unidade_estoque TEXT,
+            quantidade_por_dose REAL,
+            farmacia TEXT,
+            valor_pago REAL,
+            documento_id INTEGER,
+            observacao TEXT,
+            ativo INTEGER DEFAULT 1,
+            criado_em TEXT NOT NULL
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS receitas_medicamentos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER NOT NULL,
+            medicamento_id INTEGER NOT NULL,
+            documento_id INTEGER,
+            data_receita TEXT,
+            tipo_receita TEXT,
+            validade_dias INTEGER,
+            precisa_receita INTEGER DEFAULT 0,
+            retencao_receita INTEGER DEFAULT 0,
+            observacao TEXT,
+            ativo INTEGER DEFAULT 1,
+            criado_em TEXT NOT NULL
+        )
+    """)
+
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS cuidados_agendados (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER NOT NULL,
+            data_cuidado TEXT NOT NULL,
+            tipo TEXT NOT NULL,
+            titulo TEXT NOT NULL,
+            prioridade TEXT,
+            status TEXT NOT NULL DEFAULT 'Aberto',
+            origem TEXT,
+            medicamento_id INTEGER,
+            exame_nome TEXT,
+            marco_id INTEGER,
+            pendencia_id INTEGER,
+            observacao TEXT,
+            criado_em TEXT NOT NULL
+        )
+    """)
+
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS consentimentos_privacidade (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER NOT NULL,
+            data_consentimento TEXT NOT NULL,
+            versao_termo TEXT,
+            aceita_uso_local INTEGER DEFAULT 0,
+            aceita_documentos INTEGER DEFAULT 0,
+            aceita_relatorios INTEGER DEFAULT 0,
+            observacao TEXT,
+            criado_em TEXT NOT NULL
+        )
+    """)
+
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS configuracoes_app (
+            chave TEXT PRIMARY KEY,
+            valor TEXT,
+            atualizado_em TEXT
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS restauracoes_backup (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            data_solicitacao TEXT NOT NULL,
+            caminho_backup TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'Pendente',
+            observacao TEXT,
+            criado_em TEXT NOT NULL
+        )
+    """)
+
+    # Migrações seguras
     add_coluna(conn, "usuarios", "ativo INTEGER DEFAULT 1")
     add_coluna(conn, "usuarios", "atualizado_em TEXT")
     add_coluna(conn, "usuarios", "desativado_em TEXT")
@@ -241,9 +367,20 @@ def init_db():
     add_coluna(conn, "documentos_saude", "marco_id INTEGER")
 
     add_coluna(conn, "exames", "marco_id INTEGER")
+    add_coluna(conn, "exames", "nome_padronizado TEXT")
+    add_coluna(conn, "exames", "categoria_exame TEXT")
+    add_coluna(conn, "exames", "observacao_padronizacao TEXT")
     add_coluna(conn, "medicamentos", "marco_id INTEGER")
     add_coluna(conn, "eventos_medicacao", "marco_id INTEGER")
     add_coluna(conn, "sintomas_diario", "marco_id INTEGER")
+
+    add_coluna(conn, "doses", "motivo_nao_tomou TEXT")
+    add_coluna(conn, "doses", "acao_sugerida TEXT")
+
+    # Campos de continuidade diretamente no medicamento para resumo rápido
+    add_coluna(conn, "medicamentos", "controlar_estoque INTEGER DEFAULT 0")
+    add_coluna(conn, "medicamentos", "precisa_receita INTEGER DEFAULT 0")
+    add_coluna(conn, "medicamentos", "tipo_receita TEXT")
 
     conn.commit()
     conn.close()
