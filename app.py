@@ -4,6 +4,7 @@ from datetime import date
 import streamlit as st
 
 from core.database import init_db
+from core.schema_guard import garantir_schema_completo
 from core.helpers import data_input_br, recarregar
 from core.theme import aplicar_tema
 from services.usuarios_service import salvar_usuario
@@ -49,6 +50,7 @@ st.set_page_config(
 )
 
 init_db()
+garantir_schema_completo()
 aplicar_tema()
 
 try:

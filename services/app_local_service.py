@@ -1,4 +1,3 @@
-import json
 import zipfile
 from datetime import date, datetime
 from pathlib import Path
@@ -10,14 +9,50 @@ from core.helpers import agora
 BACKUP_DIR = DATA_DIR / "backups"
 EXPORT_DIR = DATA_DIR / "exports"
 RESTORE_DIR = DATA_DIR / "restore_inbox"
-APP_CONFIG_VERSION = "MVP-8.0-local"
+APP_CONFIG_VERSION = "MVP-8.0.1-local"
 
 BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 RESTORE_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def garantir_tabelas_app_local():
+    """
+    Correção defensiva:
+    garante que as tabelas do modo aplicativo local existam,
+    mesmo se a migração do core/database.py não tiver rodado corretamente.
+    """
+    conn = conectar()
+    try:
+        cur = conn.cursor()
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS configuracoes_app (
+                chave TEXT PRIMARY KEY,
+                valor TEXT,
+                atualizado_em TEXT
+            )
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS restauracoes_backup (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                data_solicitacao TEXT NOT NULL,
+                caminho_backup TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'Pendente',
+                observacao TEXT,
+                criado_em TEXT NOT NULL
+            )
+        """)
+
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def get_config(chave, padrao=None):
+    garantir_tabelas_app_local()
+
     conn = conectar()
     try:
         cur = conn.cursor()
@@ -33,6 +68,8 @@ def get_config(chave, padrao=None):
 
 
 def set_config(chave, valor):
+    garantir_tabelas_app_local()
+
     executar(
         """
         INSERT INTO configuracoes_app (chave, valor, atualizado_em)
@@ -67,6 +104,8 @@ def concluir_onboarding():
 
 
 def status_app_local():
+    garantir_tabelas_app_local()
+
     tamanho_db = DB_PATH.stat().st_size if DB_PATH.exists() else 0
     total_docs = 0
     total_docs_bytes = 0
@@ -133,6 +172,8 @@ def _manifesto_backup(tipo="Manual"):
 
 
 def criar_backup_local(tipo="Manual"):
+    garantir_tabelas_app_local()
+
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nome = f"backup_saude360_{tipo.lower()}_{timestamp}.zip".replace(" ", "_")
@@ -186,6 +227,8 @@ def limpar_backups_antigos(manter=10):
 
 
 def backup_automatico_se_necessario():
+    garantir_tabelas_app_local()
+
     if not get_config_bool("backup_automatico", True):
         return {"feito": False, "motivo": "Backup automático desativado."}
 
@@ -226,6 +269,8 @@ def ler_bytes(caminho):
 
 
 def preparar_restauracao(uploaded_file):
+    garantir_tabelas_app_local()
+
     RESTORE_DIR.mkdir(parents=True, exist_ok=True)
     nome_seguro = f"restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uploaded_file.name}"
     destino = RESTORE_DIR / nome_seguro
@@ -320,6 +365,8 @@ def criar_arquivos_atalho_local(base_dir="."):
 
 
 def checklist_app_local():
+    garantir_tabelas_app_local()
+
     return [
         {
             "item": "Dados locais",
